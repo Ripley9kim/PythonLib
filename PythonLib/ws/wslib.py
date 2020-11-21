@@ -1,9 +1,5 @@
-import os
 import logging
-import socket
 import threading
-import argparse
-import re
 import hashlib
 import base64
 import httpmsg
@@ -29,11 +25,6 @@ WS_OPCODE_RES_C    = 0xc	# Reserved for further control frames
 WS_OPCODE_RES_D    = 0xd	# Reserved for further control frames
 WS_OPCODE_RES_E    = 0xe	# Reserved for further control frames
 WS_OPCODE_RES_F    = 0xf	# Reserved for further control frames
-
-logging.basicConfig(
-		level=logging.DEBUG, 
-		format='%(asctime)s.%(msecs)03d - %(message)s',
-		datefmt='%Y-%m-%d %H:%M:%S')
 
 ####################################################################
 # svc
@@ -197,7 +188,7 @@ def ws_read(sock):
 		logging.debug('[%s] [frameRecv] frame end.' % tid)
 
 def ws_write(sock):
-	...
+	raise Exception('Not implemented')
 
 def ws_masking(mask, data):
 	dlen = len(data)
@@ -224,90 +215,14 @@ def echo_handler(sock):
 		sock.close()
 
 ####################################################################
-# main
+# Self-Test
 ####################################################################
 
 if __name__ == '__main__':
+	#
 	# Initializing.... Self-Test
+	#
 	test_key = 'dGhlIHNhbXBsZSBub25jZQ=='
 	test_guidstr = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 	(guidstr, b64str) = ws_handshake_calckey(test_key, test_guidstr)
 	assert b64str == 's3pPLMBiTxaQ9kYGzzhZRbK+xOo='
-
-	# Create the argument parser
-	parser = argparse.ArgumentParser(
-		description="WebSocket Server",
-		add_help=False
-		)
-	
-	# Add argument definition
-	parser.add_argument(
-		'-h',
-		'--host',
-		metavar='text',
-		type=str,
-		default='localhost',
-		help='Listening host name'
-		)
-	
-	# Add argument definition
-	parser.add_argument(
-		'-p',
-		'--port',
-		metavar='N',
-		type=int,
-		default=8080,
-		help='Listening port number',
-	)
-
-	# Add argument definition	
-	parser.add_argument(
-		'-v',
-		'--hosts',
-		metavar='text',
-		type=str,
-		default=None,
-		help='Verified host list ("," delimeted)',
-	)
-	
-	# Add argument definition	
-	parser.add_argument(
-		'-o',
-		'--origins',
-		metavar='text',
-		type=str,
-		default=None,
-		help='Verified origin list ("," delimeted)',
-	)
-
-	# Parse the arguments on the command line
-	pargs = parser.parse_args()
-
-	logging.info('starting server...(%s)' % os.path.basename(__file__))
-	logging.info('host=%s, port=%d, hosts=%s' % 
-				(pargs.host, pargs.port, pargs.hosts))
-
-	# Prepare Server Socket
-	server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	server.bind((pargs.host, pargs.port))
-	server.listen()
-	
-	# Build verified host list
-	if pargs.hosts:
-		hosts = re.split('\\s*,\\s*', pargs.hosts)
-	else:
-		hosts = None
-
-	# Build verified origin list
-	if pargs.origins:
-		origins = re.split('\\s*,\\s*', pargs.origins)
-	else:
-		origins = None
-
-	# Socket accept loop...
-	logging.info('listening...')
-	while True:
-		sock, remote = server.accept()
-		t = threading.Thread(target=svc, args=(sock, hosts, origins))
-		t.start()
-		logging.info('thread started: [%d]' % t.ident)
