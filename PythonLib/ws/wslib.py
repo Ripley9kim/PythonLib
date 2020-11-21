@@ -70,7 +70,7 @@ class WSServer:
 				hostonly = host.split(':')[0] # ':' 가 없어도 작동함
 				if not hostonly in self.hosts:
 					# Host not verified
-					self.__error_response(sock, HTTPStatus.FORBIDDEN)
+					self.__ws_error_response(sock, HTTPStatus.FORBIDDEN)
 					return
 	
 		#
@@ -80,7 +80,7 @@ class WSServer:
 			origin = req.header('origin')
 			if origin and (not origin in self.origins):
 				# Origin not verified
-				self.__error_response(sock, HTTPStatus.FORBIDDEN)
+				self.__ws_error_response(sock, HTTPStatus.FORBIDDEN)
 				return
 	
 		#
@@ -92,7 +92,7 @@ class WSServer:
 		
 		if endpoint not in ['/echo']:
 			# Invalid (Not found) endpoint
-			self.__error_response(sock, HTTPStatus.NOT_FOUND)
+			self.__ws_error_response(sock, HTTPStatus.NOT_FOUND)
 			return
 	
 		#
@@ -111,10 +111,15 @@ class WSServer:
 		logging.debug('[%s] resp_encoded=[%s]', tid, resp_encoded)
 		sock.sendall(resp_encoded)
 		
-		if endpoint == '/echo':
-			# Route request to Echo Service
-			self.echo_handler(sock)
-			
+		if self.handler:
+			self.handler(endpoint, sock)
+
+	#
+	# set_handler
+	#
+	def set_handler(self, handler):
+		self.handler = handler
+
 	#
 	# __server_loop
 	#
@@ -147,28 +152,14 @@ class WSServer:
 		# 열려있는 모든 소켓 관리 및 여기서 닫기.
 
 	#
-	# __error_response
+	# __ws_error_response
 	#
 	@staticmethod
-	def __error_response(sock, status: HTTPStatus):
+	def __ws_error_response(sock, status: HTTPStatus):
 		resp = httpmsg.HTTPResp(status.value, status.phrase)
 		resp.addHeader('Server', 'WSS/1.1.7 (jupiter; rev569)')
 		resp.addHeader('Content-Type', 'text/html')
 		sock.sendall(resp.encode())
-
-	#
-	# ws_handshake_calckey
-	#
-	@staticmethod
-	def ws_handshake_calckey(keystr, guidstr):
-		tid = threading.get_ident()
-		hashobj = hashlib.sha1((keystr + guidstr).encode('ascii')) # bytes -> hash object
-		hashbytes = bytes.fromhex(hashobj.hexdigest()) # str -> bytes
-		b64str = base64.b64encode(hashbytes).decode('ascii')
-		logging.debug("[%s] ws_handshake_calckey(): key=[%s]", tid, keystr)
-		logging.debug("[%s] ws_handshake_calckey(): guid=[%s]", tid, guidstr)
-		logging.debug("[%s] ws_handshake_calckey(): hash/base64=[%s]", tid, b64str)
-		return (guidstr, b64str)
 
 	#
 	# __ws_handshake_protocol
@@ -197,10 +188,36 @@ class WSServer:
 		return received
 
 	#
-	# __ws_read
+	# __ws_masking
 	#
 	@staticmethod
-	def __ws_read(sock):
+	def __ws_masking(mask, data):
+		dlen = len(data)
+		unmasked = bytearray(dlen)
+		for i in range(dlen):
+			j = i % 4
+			unmasked[i] = data[i] ^ mask[j]
+		return unmasked
+
+	#
+	# ws_handshake_calckey
+	#
+	@staticmethod
+	def ws_handshake_calckey(keystr, guidstr):
+		tid = threading.get_ident()
+		hashobj = hashlib.sha1((keystr + guidstr).encode('ascii')) # bytes -> hash object
+		hashbytes = bytes.fromhex(hashobj.hexdigest()) # str -> bytes
+		b64str = base64.b64encode(hashbytes).decode('ascii')
+		logging.debug("[%s] ws_handshake_calckey(): key=[%s]", tid, keystr)
+		logging.debug("[%s] ws_handshake_calckey(): guid=[%s]", tid, guidstr)
+		logging.debug("[%s] ws_handshake_calckey(): hash/base64=[%s]", tid, b64str)
+		return (guidstr, b64str)
+
+	#
+	# ws_read
+	#
+	@staticmethod
+	def ws_read(sock):
 		tid = threading.get_ident()
 		b = sock.recv(1)
 		if not b: return None
@@ -250,38 +267,11 @@ class WSServer:
 			logging.debug('[%s] [frameRecv] frame end.' % tid)
 
 	#
-	# __ws_write
+	# ws_write
 	#
 	@staticmethod
-	def __ws_write(sock):
+	def ws_write(sock):
 		raise Exception('Not implemented')
-
-	#
-	# __ws_masking
-	#
-	@staticmethod
-	def __ws_masking(mask, data):
-		dlen = len(data)
-		unmasked = bytearray(dlen)
-		for i in range(dlen):
-			j = i % 4
-			unmasked[i] = data[i] ^ mask[j]
-		return unmasked
-
-	#
-	# echo_handler
-	#
-	def echo_handler(self, sock):
-		tid = threading.get_ident()
-		try:
-			while True:
-				data = WSServer.__ws_read(sock)
-				if not data:
-					logging.debug('[%s] handler end!' % tid)
-					break
-		except Exception as e:
-			logging.debug('[%s] error=%s' % (tid, e))
-			sock.close()
 
 ####################################################################
 # Self-Test
