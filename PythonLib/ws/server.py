@@ -21,10 +21,10 @@ def handler(endpoint, sock):
         while True:
             data = WSServer.ws_read(sock)
             if not data:
-                logging.debug('[%s] [%s] handler end!' % (tid, endpoint))
+                logging.debug('[%s][%s] handler end!' % (tid, endpoint))
                 break
     except Exception as e:
-        logging.debug('[%s] [%s] error=%s' % (tid, endpoint, e))
+        logging.debug('[%s][%s] error=%s' % (tid, endpoint, e))
         sock.close()
 
 ####################################################################
