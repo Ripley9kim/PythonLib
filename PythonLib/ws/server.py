@@ -1,7 +1,5 @@
 import os
 import logging
-import socket
-import threading
 import argparse
 import re
 import wslib
@@ -60,14 +58,9 @@ parser.add_argument(
 # Parse the arguments on the command line
 pargs = parser.parse_args()
 
-logging.info('starting py...(%s)' % os.path.basename(__file__))
+logging.info('starting server...(%s)' % os.path.basename(__file__))
 logging.info('host=%s, port=%d, hosts=%s' % 
             (pargs.host, pargs.port, pargs.hosts))
-
-# Prepare Server Socket
-py = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-py.bind((pargs.host, pargs.port))
-py.listen()
 
 # Build verified host list
 if pargs.hosts:
@@ -81,10 +74,5 @@ if pargs.origins:
 else:
     origins = None
 
-# Socket accept loop...
-logging.info('listening...')
-while True:
-    sock, remote = py.accept()
-    t = threading.Thread(target=wslib.svc, args=(sock, hosts, origins))
-    t.start()
-    logging.info('thread started: [%d]' % t.ident)
+wssvr = wslib.WSServer(pargs.host, pargs.port, hosts, origins)
+wssvr.run_forever()
