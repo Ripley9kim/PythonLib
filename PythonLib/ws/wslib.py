@@ -13,6 +13,7 @@ from http import HTTPStatus
 
 class WSServer:
 	WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+	WS_USERAGENT = 'WSS/1.1.15 jupiter'
 	WS_VERSION = 13
 	WS_TEXT_ENCODING ='utf-8'
 	WS_OPCODE_CONT_0   = 0x0	# Continuation Frame
@@ -125,11 +126,12 @@ class WSServer:
 	#
 	def __server_loop(self):
 		while True:
-			logging.debug('accept() on %s', self.server.getsockname())
-			sock, _ = self.server.accept()
+			logging.debug('waiting on %s...', self.server.getsockname())
+			sock, remote = self.server.accept()
+			logging.info('accepted from %s' % str(remote))
 			t = threading.Thread(target=lambda s: self.__handle_socket(s), args=(sock,))
 			t.start()
-			logging.info('thread started: [%d]' % t.ident)
+			logging.info('thread started: tid=%d, remote=%s' % (t.ident, str(remote)))
 	
 	# 
 	# start
@@ -157,7 +159,7 @@ class WSServer:
 	@staticmethod
 	def __ws_error_response(sock, status: HTTPStatus):
 		resp = httpmsg.HTTPResp(status.value, status.phrase)
-		resp.addHeader('Server', 'WSS/1.1.7 (jupiter; rev569)')
+		resp.addHeader('Server', WSServer.WS_USERAGENT)
 		resp.addHeader('Content-Type', 'text/html')
 		sock.sendall(resp.encode())
 

@@ -17,14 +17,23 @@ logging.basicConfig(
 
 def handler(endpoint, sock):
     tid = threading.get_ident()
+    tid = str(tid) + '-' + endpoint
     try:
         while True:
-            data = WSServer.ws_read(sock)
-            if not data:
-                logging.debug('[%s] [%s] handler end!' % (tid, endpoint))
+            wsdata = WSServer.ws_read(sock)
+            if not wsdata:
+                logging.debug('[%s] end of data' % tid)
                 break
+            
+            opcode, data = wsdata
+            if opcode == WSServer.WS_OPCODE_TEXT_1:
+                logging.info('[%s] opcode=[%s] data=[%s]' % (tid, opcode, data))
+            else:
+                raise Exception('Invalid opcode: ' + opcode)
     except Exception as e:
-        logging.debug('[%s] [%s] error=%s' % (tid, endpoint, e))
+        logging.debug('[%s] error=[%s]' % (tid, e))
+    finally:
+        logging.debug('[%s] handler end' % tid)
         sock.close()
 
 ####################################################################
@@ -82,8 +91,8 @@ if __name__ == '__main__':
     pargs = parser.parse_args()
     
     logging.info('starting server...(%s)' % os.path.basename(__file__))
-    logging.info('host=%s, port=%d, hosts=%s' % 
-                (pargs.host, pargs.port, pargs.hosts))
+    logging.info('host=%s, port=%d, hosts=%s, origins=%s' % 
+                (pargs.host, pargs.port, pargs.hosts, pargs.origins))
     
     # Build verified host list
     if pargs.hosts:
