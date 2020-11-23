@@ -4,6 +4,7 @@ import hashlib
 import base64
 import httpmsg
 import socket
+import random
 	
 from http import HTTPStatus
 
@@ -12,11 +13,12 @@ from http import HTTPStatus
 ####################################################################
 
 class WSServer:
+	NETWORK_BYTE_ORDER = 'big'
 	WS_GUIDSTR = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 	WS_USERAGENT = 'WSS/1.1.15 jupiter'
 	WS_VERSION = 13
-	WS_TEXT_ENCODING ='utf-8'
-	WS_FRAME_ENDIAN = 'big'
+	WS_TEXT_ENCODING = 'utf-8'
+	WS_BYTE_ORDER = NETWORK_BYTE_ORDER
 	WS_OPCODE_CONT_0   = 0x0
 	WS_OPCODE_TEXT_1   = 0x1
 	WS_OPCODE_BINARY_2 = 0x2
@@ -305,7 +307,7 @@ class WSServer:
 		# +---------------------------------------------------------------+
 
 		#
-		# first octect
+		# first octet
 		#
 		b = sock.recv(1)
 		if not b: return None
@@ -346,10 +348,10 @@ class WSServer:
 			# length quantities are expressed in network byte order....
 			if plen == 126:
 				tmpbytes = WSServer.__ws_sockread_all(sock, 2)
-				plen = int.from_bytes(tmpbytes, WSServer.WS_FRAME_ENDIAN, signed=False)
+				plen = int.from_bytes(tmpbytes, WSServer.WS_BYTE_ORDER, signed=False)
 			else:
 				tmpbytes = WSServer.__ws_sockread_all(sock, 8)
-				plen = int.from_bytes(tmpbytes, WSServer.WS_FRAME_ENDIAN, signed=False)
+				plen = int.from_bytes(tmpbytes, WSServer.WS_BYTE_ORDER, signed=False)
 			#logging.debug('[%s] [frameRecv] 0x%x' % (tid, n) + ' | {0:08b}'.format(n))
 			logging.debug('[%s] [frameRecv] mask=%d, plen=%d' % (tid, mask, plen))
 
@@ -394,9 +396,9 @@ class WSServer:
 	# ws_write
 	#
 	@staticmethod
-	def ws_write(sock, payloadBytes, isText=True):
+	def ws_write(sock, data: bytes, isText=True):
 		tid = threading.get_ident()
-		
+
 		#  0                   1                   2                   3
 		#  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 		# +-+-+-+-+-------+-+-------------+-------------------------------+
@@ -417,4 +419,45 @@ class WSServer:
 		# +---------------------------------------------------------------+
 		
 		logging.debug('[%s] [frameSend] <<<< frame start >>>>' % tid)
-		...
+		
+		fin = 1
+		rsv1 = 0
+		rsv2 = 0
+		rsv3 = 0
+		
+		if isText:
+			opcode = WSServer.WS_OPCODE_TEXT_1
+		else:
+			opcode = WSServer.WS_OPCODE_BINARY_2
+
+		mask = 1
+		maskrand = random.getrandbits(32)
+		maskbytes = maskrand.to_bytes(4, WSServer.WS_BYTE_ORDER)
+		data = WSServer.__ws_masking(maskbytes, data)
+		
+		#
+		# 1st octet
+		#
+		octets = (fin << 7) + (rsv1 << 6) + (rsv2 << 5) + (rsv3 << 4) + (opcode & 0xf)
+		
+		#
+		# Payload length
+		#
+		plen = len(data)
+		if plen > int('0xffff', 16): # 66535
+			# 16bit 로도 표현이 불가능하다. 이 때는 64bit 을 모두 사용한다.
+			octets = (octets << 8) + (mask << 7) + (127 & 0x7f)
+			octets = (octets << 64) + (plen & 0xffffffffffffffff)
+		elif plen > 126:
+			# 7bit 로 표현이 불가능하며 16bit 를 사용한다.
+			octets = (octets << 8) + (mask << 7) + (126 & 0x7f)
+			octets = (octets << 16) + (plen & 0xffff)
+		else:
+			octets = (octets << 8) + (mask << 7) + (plen & 0x7f)
+		
+		#
+		# Send all
+		#
+		sock.send(int.to_bytes(1, WSServer.WS_BYTE_ORDER, octets))
+		sock.send(maskbytes)
+		sock.send(data)

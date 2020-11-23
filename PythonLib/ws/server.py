@@ -36,11 +36,10 @@ def handler(endpoint, sock):
 				logging.info('[%s] opcode=[%s] len=[%d] data=[%s]' % 
 							(tid, opcode_name, len(data), data))
 					
-					
 			if opcode == WSServer.WS_OPCODE_TEXT_1:
-				...
+				pass # WSServer.ws_write(sock, data.encode(WSServer.WS_TEXT_ENCODING), True)
 			elif opcode == WSServer.WS_OPCODE_BINARY_2:
-				...
+				pass # WSServer.ws_write(sock, data, False)
 			else:
 				raise Exception('Invalid opcode: ' + opcode)
 	except Exception as e:
