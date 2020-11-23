@@ -333,7 +333,7 @@ class WSServer:
 		plen = n & 0x07f
 		
 		#
-		# Pyaload Length and extended payload length
+		# Payload Length and extended payload length
 		#
 		if plen >= 126:
 			# RFC6455 5.2. Base Framing Protocol
