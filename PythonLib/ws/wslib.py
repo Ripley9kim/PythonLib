@@ -12,7 +12,7 @@ from http import HTTPStatus
 ####################################################################
 
 class WSServer:
-	WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+	WS_GUIDSTR = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 	WS_USERAGENT = 'WSS/1.1.15 jupiter'
 	WS_VERSION = 13
 	WS_TEXT_ENCODING ='utf-8'
@@ -36,95 +36,18 @@ class WSServer:
 	# 
 	# Constructor
 	#
-	def __init__(self, host='', port=8080, hosts=None, origins=None):
+	def __init__(self, host='', port=8080, hosts=None, origins=None, endpoints=None):
 		self.host = host
 		self.port = int(port)
 		self.hosts = hosts if hosts != None else []
 		self.origins = origins if origins != None else []
+		self.endpoints = endpoints if endpoints != None else []
 		
 		server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		server.bind((host, port))
 		server.listen()
 		self.server = server
 		self.sockets = []
-
-	#
-	# __handle_socket
-	#
-	def __handle_socket(self, sock):
-		tid = threading.get_ident()
-		logging.info('[%s] accepted from %s' % (tid, str(sock.getpeername())))
-	
-		#
-		# Handshake Received
-		#
-		req = httpmsg.message_from_socket(sock)
-		logging.debug('[%s] ReqLine> [%s] [%s]' % (tid, req.method, req.requesturi))
-		for name, value in req.all():
-			logging.debug('[%s] HdrLine> %s: %s' % (tid, name, value))
-	
-		#
-		# Verify host header
-		#
-		if self.hosts:
-			host = req.header('host')
-			if host:
-				hostonly = host.split(':')[0] # ':' 가 없어도 작동함
-				if not hostonly in self.hosts:
-					# Host not verified
-					self.__ws_error_response(sock, HTTPStatus.FORBIDDEN)
-					return
-	
-		#
-		# Verify host header
-		#
-		if self.origins:
-			origin = req.header('origin')
-			if origin and (not origin in self.origins):
-				# Origin not verified
-				self.__ws_error_response(sock, HTTPStatus.FORBIDDEN)
-				return
-	
-		#
-		# Check service endpoint
-		#
-		endpoint = req.parseduri.path
-		
-		logging.debug('[%s] URI> %s' % (tid, req.parseduri))
-		
-		if endpoint not in ['/echo']:
-			# Invalid (Not found) endpoint
-			self.__ws_error_response(sock, HTTPStatus.NOT_FOUND)
-			return
-	
-		#
-		# Handshake Response
-		#
-		_, b64str = WSServer.ws_handshake_calckey(req.header('sec-websocket-key'), WSServer.WS_GUID)
-		acceptProtos = WSServer.__ws_handshake_protocol(req.header('sec-websocket-protocol'))
-		
-		resp = httpmsg.HTTPResp(status=101, phrase='Switching Protocols')
-		resp.addHeader('Upgrade', 'websocket')
-		resp.addHeader('Connection', 'Upgrade')
-		resp.addHeader('Sec-WebSocket-Version', WSServer.WS_VERSION)
-		resp.addHeader('Sec-WebSocket-Accept', b64str)
-		resp.addHeader('Sec-WebSocket-Protocol', acceptProtos)
-		resp_encoded = resp.encode()
-		logging.debug('[%s] resp_encoded=[%s]', tid, resp_encoded)
-		sock.sendall(resp_encoded)
-		
-		if self.handler:
-			self.handler(endpoint, sock)
-	
-	#
-	# __handle_socket_wrap
-	#
-	def __handle_socket_wrap(self, sock):
-		try:
-			self.__handle_socket(sock)
-		finally:
-			sock.close()
-			self.sockets.remove(sock)
 
 	#
 	# set_handler
@@ -135,22 +58,6 @@ class WSServer:
 		"""
 		self.handler = handler
 
-	#
-	# __server_loop
-	#
-	def __server_loop(self):
-		while True:
-			logging.debug('waiting on %s...', self.server.getsockname())
-			sock, remote = self.server.accept()
-			self.sockets.append(sock)
-			try:
-				logging.info('accepted from %s' % str(remote))
-				t = threading.Thread(target=lambda s: self.__handle_socket_wrap(s), args=(sock,))
-				t.start()
-				logging.info('thread started: tid=%d, remote=%s' % (t.ident, str(remote)))
-			except Exception:
-				self.sockets.remove(sock)
-	
 	# 
 	# start
 	#
@@ -177,6 +84,144 @@ class WSServer:
 		self.sockets.clear()
 
 	#
+	# __server_loop
+	#
+	def __server_loop(self):
+		while True:
+			logging.debug('waiting on %s...', self.server.getsockname())
+			sock, remote = self.server.accept()
+			self.sockets.append(sock)
+			try:
+				logging.info('accepted from %s' % str(remote))
+				t = threading.Thread(target=lambda s: self.__ws_handshake_wrap(s), args=(sock,))
+				t.start()
+				logging.info('thread started: tid=%d, remote=%s' % (t.ident, str(remote)))
+			except Exception:
+				self.sockets.remove(sock)
+
+	#
+	# __ws_handshake
+	#
+	def __ws_handshake(self, sock):
+		tid = threading.get_ident()
+		logging.info('[%s] accepted from %s' % (tid, str(sock.getpeername())))
+	
+		#
+		# Handshake Received
+		#
+		req = httpmsg.message_from_socket(sock)
+		logging.debug('[%s] ReqLine> [%s] [%s]' % (tid, req.method, req.requesturi))
+		for name, value in req.all():
+			logging.debug('[%s] HdrLine> %s: %s' % (tid, name, value))
+	
+		#
+		# Verify host header
+		#
+		# RFC6455 1.3. Opening Handshake
+		# The client includes the hostname in the |Host| header field of its
+		# handshake as per [RFC2616], so that both the client and the server
+		# can verify that they agree on which host is in use.
+		if self.hosts:
+			host = req.header('host')
+			if host:
+				hostonly = host.split(':')[0] # port 제거, ':' 가 없어도 작동함
+				if not hostonly in self.hosts:
+					self.__ws_error_response(sock, HTTPStatus.FORBIDDEN)
+					return
+	
+		#
+		# Verify protocol
+		#
+		# RFC6455 1.3. Opening Handshake
+		# ... The |Sec-WebSocket-Protocol| request-header field can be
+		# used to indicate what subprotocols (application-level protocols
+		# layered over the WebSocket Protocol) are acceptable to the client.
+		sec_proto = req.header('sec-websocket-protocol')
+		accept_proto = None # 현재는 지원하는 이름이 없음.
+		if sec_proto:
+			pass
+		
+		#
+		# Verify origin header
+		#
+		# RFC6455 1.3. Opening Handshake
+		# The |Origin| header field [RFC6454] is used to protect against
+		# unauthorized cross-origin use of a WebSocket server by scripts using
+		# the WebSocket API in a web browser. The server is informed of the
+		# script origin generating the WebSocket connection request. If the
+		# server does not wish to accept connections from this origin, it can
+		# choose to reject the connection by sending an appropriate HTTP error
+		# code. This header field is sent by browser client; ...
+		if self.origins:
+			origin = req.header('origin')
+			if origin and (not origin in self.origins):
+				self.__ws_error_response(sock, HTTPStatus.FORBIDDEN)
+				return
+	
+		#
+		# Check service endpoint
+		#
+		# RFC6455 1.3. Opening Handshake
+		# The "Request-URI" of the GET method [RFC2616] is used to identify the
+		# endpoint of the WebSocket connection, both to allow multiple domains
+		# to be served from one IP address and to allow multiple WebSocket
+		# endpoints to be served by a signle server.
+		endpoint = req.parseduri.path
+		# ex) URL "/echo"         -> path="/echo"
+		# ex) URL "/echo/xyz?a=b" -> path="/echo/xyz"
+		# ex) URL ""              -> path="/"
+		if self.endpoints:
+			if endpoint and (not endpoint in self.endpoints):
+				self.__ws_error_response(sock, HTTPStatus.NOT_FOUND)
+				return
+	
+		#
+		# Calculate hash
+		#
+		# RFC6455 1.3. Opening Handshake
+		# Finally, the server has to prove to the client that it received the
+		# client's WebSocket handshake, so that the server doesn't accept
+		# connections that are not WebSocket connections. This prevents an
+		# attacker from tricking a WebSocket server by sending it carefully
+		# crafted packets using XMLHttpRequest [XMLHttpRequest] or a form
+		# submission....
+		wskey = req.header('sec-websocket-key')
+		wskeyguid = wskey + WSServer.WS_GUIDSTR
+		hashobj = hashlib.sha1(wskeyguid.encode('ascii')) # bytes -> hash object
+		hashbytes = bytes.fromhex(hashobj.hexdigest()) # str -> bytes
+		wsacceptb64 = base64.b64encode(hashbytes).decode('ascii')
+		
+		#
+		# Handshake Response
+		#
+		# RFC6455 1.3. Opening Handshake
+		# The handshake from the server is much simpler than the client
+		# handshake. The first line is an HTTP Status-Line, with the status
+		# code 101:
+		resp = httpmsg.HTTPResp(status=101, phrase='Switching Protocols')
+		resp.addHeader('Connection', 'Upgrade')
+		resp.addHeader('Upgrade', 'websocket')
+		resp.addHeader('Sec-WebSocket-Version', WSServer.WS_VERSION)
+		resp.addHeader('Sec-WebSocket-Accept', wsacceptb64)
+		resp.addHeader('Sec-WebSocket-Protocol', accept_proto)
+		resp_encoded = resp.encode()
+		logging.debug('[%s] resp_encoded=[%s]', tid, resp_encoded)
+		sock.sendall(resp_encoded)
+		
+		if self.handler:
+			self.handler(endpoint, sock)
+	
+	#
+	# __ws_handshake_wrap
+	#
+	def __ws_handshake_wrap(self, sock):
+		try:
+			self.__ws_handshake(sock)
+		finally:
+			sock.close()
+			self.sockets.remove(sock)
+
+	#
 	# __ws_error_response
 	#
 	@staticmethod
@@ -185,16 +230,6 @@ class WSServer:
 		resp.addHeader('Server', WSServer.WS_USERAGENT)
 		resp.addHeader('Content-Type', 'text/html')
 		sock.sendall(resp.encode())
-
-	#
-	# __ws_handshake_protocol
-	#
-	@staticmethod
-	def __ws_handshake_protocol(proto):
-		if not proto:
-			return
-		# 현재는 정의된 것이 없음.
-		return None
 
 	#
 	# __ws_sockread_all
@@ -223,20 +258,6 @@ class WSServer:
 			j = i % 4
 			unmasked[i] = data[i] ^ mask[j]
 		return unmasked
-
-	#
-	# ws_handshake_calckey
-	#
-	@staticmethod
-	def ws_handshake_calckey(keystr, guidstr):
-		tid = threading.get_ident()
-		hashobj = hashlib.sha1((keystr + guidstr).encode('ascii')) # bytes -> hash object
-		hashbytes = bytes.fromhex(hashobj.hexdigest()) # str -> bytes
-		b64str = base64.b64encode(hashbytes).decode('ascii')
-		logging.debug("[%s] ws_handshake_calckey(): key=[%s]", tid, keystr)
-		logging.debug("[%s] ws_handshake_calckey(): guid=[%s]", tid, guidstr)
-		logging.debug("[%s] ws_handshake_calckey(): hash/base64=[%s]", tid, b64str)
-		return (guidstr, b64str)
 
 	#
 	# ws_read
@@ -297,16 +318,3 @@ class WSServer:
 	@staticmethod
 	def ws_write(sock):
 		raise Exception('Not implemented')
-
-####################################################################
-# Self-Test
-####################################################################
-
-if __name__ == '__main__':
-	#
-	# Initializing.... Self-Test
-	#
-	test_key = 'dGhlIHNhbXBsZSBub25jZQ=='
-	test_guidstr = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
-	(guidstr, b64str) = WSServer.ws_handshake_calckey(test_key, test_guidstr)
-	assert b64str == 's3pPLMBiTxaQ9kYGzzhZRbK+xOo='

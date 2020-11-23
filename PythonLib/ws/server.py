@@ -18,6 +18,7 @@ logging.basicConfig(
 def handler(endpoint, sock):
     tid = threading.get_ident()
     tid = str(tid) + '-' + endpoint
+    logging.debug('[%s] handler started. endpoint=[%s]' % (tid, endpoint))
     try:
         while True:
             wsdata = WSServer.ws_read(sock)
@@ -86,7 +87,17 @@ if __name__ == '__main__':
         default=None,
         help='Verified origin list ("," delimeted)',
     )
-    
+
+    # Add argument definition  
+    parser.add_argument(
+        '-e',
+        '--endpoints',
+        metavar='text',
+        type=str,
+        default=None,
+        help='Verified endpoint list ("," delimeted)',
+    )
+        
     # Parse the arguments on the command line
     pargs = parser.parse_args()
     
@@ -105,7 +116,13 @@ if __name__ == '__main__':
         origins = re.split('\\s*,\\s*', pargs.origins)
     else:
         origins = None
+        
+    # Build verified endpoints list
+    if pargs.endpoints:
+        endpoints = re.split('\\s*,\\s*', pargs.endpoints)
+    else:
+        endpoints = None
 
-    wssvr = WSServer(pargs.host, pargs.port, hosts, origins)
+    wssvr = WSServer(pargs.host, pargs.port, hosts, origins, endpoints)
     wssvr.set_handler(handler)
     wssvr.run_forever()

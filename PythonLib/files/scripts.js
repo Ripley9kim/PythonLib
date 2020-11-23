@@ -2,7 +2,7 @@
 // Websocket
 // ------------------------------------------------
 
-url = "ws://localhost:8080/echo";
+url = "ws://localhost:8080"
 w = new WebSocket(url);
 
 w.onopen = function() {
