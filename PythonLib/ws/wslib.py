@@ -16,22 +16,41 @@ class WSServer:
 	WS_USERAGENT = 'WSS/1.1.15 jupiter'
 	WS_VERSION = 13
 	WS_TEXT_ENCODING ='utf-8'
-	WS_OPCODE_CONT_0   = 0x0	# Continuation Frame
-	WS_OPCODE_TEXT_1   = 0x1	# Text Frame
-	WS_OPCODE_BINARY_2 = 0x2	# Binary Frame
-	WS_OPCODE_RES_3    = 0x3	# Reserved for further non-control frames
-	WS_OPCODE_RES_4    = 0x4	# Reserved for further non-control frames
-	WS_OPCODE_RES_5    = 0x5	# Reserved for further non-control frames
-	WS_OPCODE_RES_6    = 0x6	# Reserved for further non-control frames
-	WS_OPCODE_RES_7    = 0x7	# Reserved for further non-control frames
-	WS_OPCODE_CLOSE_8  = 0x8	# Connection Close
-	WS_OPCODE_PING_9   = 0x9	# Ping
-	WS_OPCODE_PONG_A   = 0xa	# Pong
-	WS_OPCODE_RES_B    = 0xb	# Reserved for further control frames
-	WS_OPCODE_RES_C    = 0xc	# Reserved for further control frames
-	WS_OPCODE_RES_D    = 0xd	# Reserved for further control frames
-	WS_OPCODE_RES_E    = 0xe	# Reserved for further control frames
-	WS_OPCODE_RES_F    = 0xf	# Reserved for further control frames
+	WS_FRAME_ENDIAN = 'big'
+	WS_OPCODE_CONT_0   = 0x0
+	WS_OPCODE_TEXT_1   = 0x1
+	WS_OPCODE_BINARY_2 = 0x2
+	WS_OPCODE_RES_3    = 0x3
+	WS_OPCODE_RES_4    = 0x4
+	WS_OPCODE_RES_5    = 0x5
+	WS_OPCODE_RES_6    = 0x6
+	WS_OPCODE_RES_7    = 0x7
+	WS_OPCODE_CLOSE_8  = 0x8
+	WS_OPCODE_PING_9   = 0x9
+	WS_OPCODE_PONG_A   = 0xa
+	WS_OPCODE_RES_B    = 0xb
+	WS_OPCODE_RES_C    = 0xc
+	WS_OPCODE_RES_D    = 0xd
+	WS_OPCODE_RES_E    = 0xe
+	WS_OPCODE_RES_F    = 0xf
+	WS_OPCODE_MAP = {
+		WS_OPCODE_CONT_0:	'0-ContinuationFrame',
+		WS_OPCODE_TEXT_1:	'1-TextFrame',
+		WS_OPCODE_BINARY_2:	'2-BinaryFrame',
+		WS_OPCODE_RES_3:	'3-Reserved for further non-control frames',
+		WS_OPCODE_RES_4:	'4-Reserved for further non-control frames',
+		WS_OPCODE_RES_5:	'5-Reserved for further non-control frames',
+		WS_OPCODE_RES_6:	'6-Reserved for further non-control frames',
+		WS_OPCODE_RES_7:	'7-Reserved for further non-control frames',
+		WS_OPCODE_CLOSE_8:	'8-ConnectionClose',
+		WS_OPCODE_PING_9:	'9-Ping',
+		WS_OPCODE_PONG_A:	'A-Pong',
+		WS_OPCODE_RES_B:	'B-Reserved for further control frames',
+		WS_OPCODE_RES_C:	'C-Reserved for further control frames',
+		WS_OPCODE_RES_D:	'D-Reserved for further control frames',
+		WS_OPCODE_RES_E:	'E-Reserved for further control frames',
+		WS_OPCODE_RES_F:	'F-Reserved for further control frames'
+		}
 	
 	# 
 	# Constructor
@@ -236,7 +255,7 @@ class WSServer:
 	#
 	@staticmethod
 	def __ws_sockread_all(sock, remain):
-		received= b''
+		received = b''
 		nlength = remain
 		nread = 0
 		while nread < nlength:
@@ -257,7 +276,7 @@ class WSServer:
 		for i in range(dlen):
 			j = i % 4
 			unmasked[i] = data[i] ^ mask[j]
-		return unmasked
+		return bytes(unmasked)
 
 	#
 	# ws_read
@@ -265,6 +284,29 @@ class WSServer:
 	@staticmethod
 	def ws_read(sock):
 		tid = threading.get_ident()
+		
+		#  0                   1                   2                   3
+		#  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+		# +-+-+-+-+-------+-+-------------+-------------------------------+
+		# |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
+		# |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
+		# |N|V|V|V|       |S|             |   (if payload len==126/127)   |
+		# | |1|2|3|       |K|             |                               |
+		# +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+		# |     Extended payload length continued, if payload len == 127  |
+		# + - - - - - - - - - - - - - - - +-------------------------------+
+		# |                               |Masking-key, if MASK set to 1  |
+		# +-------------------------------+-------------------------------+
+		# | Masking-key (continued)       |          Payload Data         |
+		# +-------------------------------- - - - - - - - - - - - - - - - +
+		# :                     Payload Data continued ...                :
+		# + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+		# |                     Payload Data continued ...                |
+		# +---------------------------------------------------------------+
+
+		#
+		# first octect
+		#
 		b = sock.recv(1)
 		if not b: return None
 		n = ord(b)
@@ -278,20 +320,50 @@ class WSServer:
 		logging.debug('[%s] [frameRecv] fin=%d, rsv1/2/3=%d/%d/%d, opcode=%d' % 
 					(tid, fin, rsv1, rsv2, rsv3, opcode))
 		
+		if fin != 1:
+			raise Exception("Fragmentation not currently supported")
+
+		#
+		# second octet
+		#
 		b = sock.recv(1)
 		if not b: return None
 		n = ord(b)
 		mask = (n & 0x80) == 0x80
 		plen = n & 0x07f
-		#logging.debug('[%s] [frameRecv] 0x%x' % (tid, n) + ' | {0:08b}'.format(n))
-		logging.debug('[%s] [frameRecv] mask=%d, plen=%d' % (tid, mask, plen))
 		
+		#
+		# Pyaload Length and extended payload length
+		#
+		if plen >= 126:
+			# RFC6455 5.2. Base Framing Protocol
+			# Pyaload length: 7 bits, 7+16 bits, or 7+64 bits
+			# The length of the "Payload data", in bytes: if 0-125, that is the 
+			# payload length. If 126, the following 2 bytes interpreted as a
+			# 16-bit unsigned integer are the payload length. If 127, the
+			# following 8 bytes interpreted as a 64-bit unsigned integer (the
+			# most significant bit MUST be 0) are the payload length. Multibyte
+			# length quantities are expressed in network byte order....
+			if plen == 126:
+				tmpbytes = WSServer.__ws_sockread_all(sock, 2)
+				plen = int.from_bytes(tmpbytes, WSServer.WS_FRAME_ENDIAN, signed=False)
+			else:
+				tmpbytes = WSServer.__ws_sockread_all(sock, 8)
+				plen = int.from_bytes(tmpbytes, WSServer.WS_FRAME_ENDIAN, signed=False)
+			#logging.debug('[%s] [frameRecv] 0x%x' % (tid, n) + ' | {0:08b}'.format(n))
+			logging.debug('[%s] [frameRecv] mask=%d, plen=%d' % (tid, mask, plen))
+
+		#
+		# Mask
+		#
 		if mask == 1:
 			maskbytes = WSServer.__ws_sockread_all(sock, 4)
 			if not maskbytes: return None
 			logging.debug('[%s] [frameRecv] maskbytes=[%s]' % (tid, maskbytes))
-		
-		payload = None
+
+		#
+		# Payload
+		#
 		if plen > 0:
 			payload = WSServer.__ws_sockread_all(sock, plen)
 			if not payload: return None
@@ -299,12 +371,18 @@ class WSServer:
 			if mask == 1:
 				# 마스킹된 데이터는 의미가 없으므로 변수를 덮어쓴다.
 				payload = WSServer.__ws_masking(maskbytes, payload)
-					
+		else:
+			payload = b''
+
+		#
+		# basic processing for opcode
+		#
 		try:
 			if opcode == WSServer.WS_OPCODE_TEXT_1:
 				textdata = payload.decode(WSServer.WS_TEXT_ENCODING, errors='replace')
-				logging.debug('[%s] [frameRecv] payload-txt=[%s]' % (tid, textdata))
 				return (opcode, textdata)
+			elif opcode == WSServer.WS_OPCODE_BINARY_2:
+				return (opcode, payload)
 			elif opcode == WSServer.WS_OPCODE_CLOSE_8:
 				logging.debug('[%s] [frameRecv] closing...' % tid)
 				sock.close()
@@ -316,5 +394,27 @@ class WSServer:
 	# ws_write
 	#
 	@staticmethod
-	def ws_write(sock):
-		raise Exception('Not implemented')
+	def ws_write(sock, payloadBytes, isText=True):
+		tid = threading.get_ident()
+		
+		#  0                   1                   2                   3
+		#  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+		# +-+-+-+-+-------+-+-------------+-------------------------------+
+		# |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
+		# |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
+		# |N|V|V|V|       |S|             |   (if payload len==126/127)   |
+		# | |1|2|3|       |K|             |                               |
+		# +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+		# |     Extended payload length continued, if payload len == 127  |
+		# + - - - - - - - - - - - - - - - +-------------------------------+
+		# |                               |Masking-key, if MASK set to 1  |
+		# +-------------------------------+-------------------------------+
+		# | Masking-key (continued)       |          Payload Data         |
+		# +-------------------------------- - - - - - - - - - - - - - - - +
+		# :                     Payload Data continued ...                :
+		# + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+		# |                     Payload Data continued ...                |
+		# +---------------------------------------------------------------+
+		
+		logging.debug('[%s] [frameSend] <<<< frame start >>>>' % tid)
+		...
