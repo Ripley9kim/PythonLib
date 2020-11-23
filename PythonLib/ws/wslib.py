@@ -46,7 +46,8 @@ class WSServer:
 		server.bind((host, port))
 		server.listen()
 		self.server = server
-	
+		self.sockets = []
+
 	#
 	# __handle_socket
 	#
@@ -114,11 +115,24 @@ class WSServer:
 		
 		if self.handler:
 			self.handler(endpoint, sock)
+	
+	#
+	# __handle_socket_wrap
+	#
+	def __handle_socket_wrap(self, sock):
+		try:
+			self.__handle_socket(sock)
+		finally:
+			sock.close()
+			self.sockets.remove(sock)
 
 	#
 	# set_handler
 	#
 	def set_handler(self, handler):
+		"""
+		handler: def handler(endpoint, sock): ...
+		"""
 		self.handler = handler
 
 	#
@@ -128,10 +142,14 @@ class WSServer:
 		while True:
 			logging.debug('waiting on %s...', self.server.getsockname())
 			sock, remote = self.server.accept()
-			logging.info('accepted from %s' % str(remote))
-			t = threading.Thread(target=lambda s: self.__handle_socket(s), args=(sock,))
-			t.start()
-			logging.info('thread started: tid=%d, remote=%s' % (t.ident, str(remote)))
+			self.sockets.append(sock)
+			try:
+				logging.info('accepted from %s' % str(remote))
+				t = threading.Thread(target=lambda s: self.__handle_socket_wrap(s), args=(sock,))
+				t.start()
+				logging.info('thread started: tid=%d, remote=%s' % (t.ident, str(remote)))
+			except Exception:
+				self.sockets.remove(sock)
 	
 	# 
 	# start
@@ -151,7 +169,12 @@ class WSServer:
 	#
 	def shutdown(self):
 		self.server.close()
-		# 열려있는 모든 소켓 관리 및 여기서 닫기.
+		for sock in self.sockets:
+			try:
+				sock.close()
+			except:
+				pass
+		self.sockets.clear()
 
 	#
 	# __ws_error_response
