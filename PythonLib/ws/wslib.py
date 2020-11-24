@@ -9,6 +9,17 @@ import random
 from http import HTTPStatus
 
 ####################################################################
+# WSData
+####################################################################
+
+class WSData:
+	"""
+	Lowlevel 의 소켓처리 및 WS 의 컨트롤 프레임에 대한 처리는 최대한 
+	노출시키지 말고 큐를 사용하여 App 에 데이터를 전달하도록 한다. 
+	데이터는 이 클래스를 사용하여 Wrapping 하도록 한다. 
+	""" 
+
+####################################################################
 # WSServer
 ####################################################################
 
@@ -272,13 +283,24 @@ class WSServer:
 	# __ws_masking
 	#
 	@staticmethod
-	def __ws_masking(mask, data):
+	def __ws_masking(data, mask=None):
+		# mask 가 None 인 경우 로컬에서 mask 를 생성하는
+		# 경우로 판단하여 아래와 같이 랜덤한 값을 만든다.
+		if not mask:
+			maskrand = random.getrandbits(32)
+			mask = maskrand.to_bytes(4, WSServer.WS_BYTE_ORDER)
+		
 		dlen = len(data)
-		unmasked = bytearray(dlen)
+		# 로컬에서 메시지를 생성하는 경우는 mask 인자가 None 이며
+		# 아래의 result 는 mask 처리한 결과값이 될 것이다.
+		# 반대로 메시지를 받아서 처리하는 경우는 mask 인자가
+		# 넘어와야 하며 아래의 result 는 mask 를 제거한 원본 
+		# 데이터가 될 것이다. 즉 (data ^ mask) ^ mask = data 이다.
+		result = bytearray(dlen)
 		for i in range(dlen):
 			j = i % 4
-			unmasked[i] = data[i] ^ mask[j]
-		return bytes(unmasked)
+			result[i] = data[i] ^ mask[j]
+		return (bytes(result), mask)
 
 	#
 	# ws_read
@@ -372,7 +394,7 @@ class WSServer:
 			logging.debug('[%s] [frameRecv] payload-32B=[%s]' % (tid, payload[:32]))
 			if mask == 1:
 				# 마스킹된 데이터는 의미가 없으므로 변수를 덮어쓴다.
-				payload = WSServer.__ws_masking(maskbytes, payload)
+				payload, _ = WSServer.__ws_masking(payload, maskbytes)
 		else:
 			payload = b''
 
@@ -431,9 +453,10 @@ class WSServer:
 			opcode = WSServer.WS_OPCODE_BINARY_2
 
 		mask = 1
-		maskrand = random.getrandbits(32)
-		maskbytes = maskrand.to_bytes(4, WSServer.WS_BYTE_ORDER)
-		data = WSServer.__ws_masking(maskbytes, data)
+		data, maskbytes = WSServer.__ws_masking(data, mask=None)
+		
+		logging.debug('[%s] [frameSend] fin=%d, rsv1/2/3=%d/%d/%d, opcode=%d' % 
+					(tid, fin, rsv1, rsv2, rsv3, opcode))
 		
 		#
 		# 1st octet
@@ -448,16 +471,33 @@ class WSServer:
 			# 16bit 로도 표현이 불가능하다. 이 때는 64bit 을 모두 사용한다.
 			octets = (octets << 8) + (mask << 7) + (127 & 0x7f)
 			octets = (octets << 64) + (plen & 0xffffffffffffffff)
+			octetcnt = 10
 		elif plen > 126:
 			# 7bit 로 표현이 불가능하며 16bit 를 사용한다.
 			octets = (octets << 8) + (mask << 7) + (126 & 0x7f)
 			octets = (octets << 16) + (plen & 0xffff)
-		else:
+			octetcnt = 4
+		else: # 126 까지는 7bit 로 표현이 가능하다.
 			octets = (octets << 8) + (mask << 7) + (plen & 0x7f)
-		
+			octetcnt = 2
+
+		logging.debug('[%s] [frameSend] mask=%d, plen=%d' % (tid, mask, plen))
+
 		#
-		# Send all
+		# Send 1st octet + payload length
 		#
-		sock.send(int.to_bytes(1, WSServer.WS_BYTE_ORDER, octets))
-		sock.send(maskbytes)
-		sock.send(data)
+		sock.send(octets.to_bytes(octetcnt, WSServer.WS_BYTE_ORDER, signed=False))
+
+		#
+		# Send mask bytes
+		#
+		if mask == 1:
+			logging.debug('[%s] [frameSend] maskbytes=[%s]' % (tid, maskbytes))
+			sock.send(maskbytes)
+
+		#
+		# Send payload
+		#
+		if plen > 0:
+			logging.debug('[%s] [frameSend] payload-32B=[%s]' % (tid, data[:32]))
+			sock.send(data)
