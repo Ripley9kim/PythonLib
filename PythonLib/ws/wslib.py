@@ -13,12 +13,30 @@ from http import HTTPStatus
 # WSData
 ####################################################################
 
+"""
+Lowlevel 의 소켓처리 및 WS 의 컨트롤 프레임에 대한 처리는 최대한 
+노출시키지 말고 큐를 사용하여 App 에 데이터를 전달하도록 한다. 
+데이터는 이 클래스를 사용하여 Wrapping 하도록 한다. 
+"""
 class WSData:
-	"""
-	Lowlevel 의 소켓처리 및 WS 의 컨트롤 프레임에 대한 처리는 최대한 
-	노출시키지 말고 큐를 사용하여 App 에 데이터를 전달하도록 한다. 
-	데이터는 이 클래스를 사용하여 Wrapping 하도록 한다. 
-	""" 
+	#
+	# Constructor
+	#
+	def __init__(self, endpoint, opcode, fin, payload):
+		self.endpoint = endpoint
+		self.opcode = opcode
+		self.fin = fin
+		self.payload = payload
+		self.length = len(payload)
+	
+	#
+	# asText
+	#
+	def asText(self):
+		if self.payload:
+			return self.payload.decode(WSServer.WS_TEXT_ENCODING, errors='replace')
+		else:
+			return ''
 
 ####################################################################
 # WSServer
@@ -87,7 +105,7 @@ class WSServer:
 	#
 	def set_handler(self, handler):
 		"""
-		handler: def handler(endpoint, sock): ...
+		handler: def handler(socket, WSData): ...
 		"""
 		self.handler = handler
 
@@ -95,14 +113,14 @@ class WSServer:
 	# start
 	#
 	def start(self):
-		t = threading.Thread(target=lambda: self.__server_loop(), args=())
+		t = threading.Thread(target=lambda: self.__serverloop(), args=())
 		t.start()
 	
 	# 
 	# run_forever
 	#
 	def run_forever(self):
-		self.__server_loop()
+		self.__serverloop()
 	
 	# 
 	# shutdown
@@ -117,20 +135,74 @@ class WSServer:
 		self.sockets.clear()
 
 	#
-	# __server_loop
+	# __serverloop
 	#
-	def __server_loop(self):
+	def __serverloop(self):
 		while True:
 			logging.debug('waiting on %s...', self.server.getsockname())
 			sock, remote = self.server.accept()
 			self.sockets.append(sock)
 			try:
 				logging.info('accepted from %s' % str(remote))
-				t = threading.Thread(target=lambda s: self.__ws_handshake_wrap(s), args=(sock,))
+				t = threading.Thread(target=lambda s: self.__sockhandler(s), args=(sock,))
 				t.start()
 				logging.info('thread started: tid=%d, remote=%s' % (t.ident, str(remote)))
 			except Exception:
 				self.sockets.remove(sock)
+
+	#
+	# __sockhandler
+	#
+	def __sockhandler(self, sock):
+		try:
+			endpoint = self.__ws_handshake(sock)
+			if not endpoint: return
+			
+			tid = threading.get_ident()
+			tid = str(tid) + '-' + endpoint
+			logging.debug('[%s] handler started. endpoint=[%s]' % (tid, endpoint))
+			while True:
+				wsdata = WSServer.ws_read(sock)
+				if not wsdata:
+					logging.debug('[%s] end of data' % tid)
+					break
+				
+				opcode, fin, payload = wsdata
+				opcode_name = WSServer.WS_OPCODE_MAP.get(opcode, -1)
+				
+				if len(payload) > 32:
+					logging.info('[%s] opcode=[%s] len=[%d] payload=[%s...%s]' % 
+						(tid, opcode_name, len(payload), payload[:16], payload[-16:]))
+				else:
+					logging.info('[%s] opcode=[%s] len=[%d] payload=[%s]' % 
+						(tid, opcode_name, len(payload), payload))
+
+				if opcode == WSServer.WS_OPCODE_TEXT_1:
+					event = WSData(endpoint, opcode, fin, payload)
+				elif opcode == WSServer.WS_OPCODE_BINARY_2:
+					event = WSData(endpoint, opcode, fin, payload)
+				elif opcode == WSServer.WS_OPCODE_CLOSE_8:
+					reason = payload.decode(WSServer.WS_TEXT_ENCODING)
+					logging.debug('[%s] [frameRecv] closing. reason=[%s]' % (tid, reason))
+					WSServer.ws_write(sock, opcode, payload)
+					# TODO: wait some seconds for server to close socket and close socket.
+					sock.close()
+					return None
+				elif opcode == WSServer.WS_OPCODE_PING_9:
+					...
+				elif opcode == WSServer.WS_OPCODE_PONG_9:
+					...
+				else:
+					raise Exception('Invalid opcode: ' + opcode)
+				
+				if self.handler:
+					self.handler(sock, event)
+		except Exception as e:
+			logging.debug('[%s] error=[%s]' % (tid, e))
+		finally:
+			logging.debug('[%s] handler end' % tid)
+			sock.close()
+			self.sockets.remove(sock)
 
 	#
 	# __ws_handshake
@@ -160,7 +232,7 @@ class WSServer:
 				hostonly = host.split(':')[0] # port 제거, ':' 가 없어도 작동함
 				if not hostonly in self.hosts:
 					self.__ws_error_response(sock, HTTPStatus.FORBIDDEN)
-					return
+					return None
 	
 		#
 		# Verify protocol
@@ -189,7 +261,7 @@ class WSServer:
 			origin = req.header('origin')
 			if origin and (not origin in self.origins):
 				self.__ws_error_response(sock, HTTPStatus.FORBIDDEN)
-				return
+				return None
 	
 		#
 		# Check service endpoint
@@ -240,19 +312,7 @@ class WSServer:
 		resp_encoded = resp.encode()
 		logging.debug('[%s] resp_encoded=[%s]', tid, resp_encoded)
 		sock.sendall(resp_encoded)
-		
-		if self.handler:
-			self.handler(endpoint, sock)
-	
-	#
-	# __ws_handshake_wrap
-	#
-	def __ws_handshake_wrap(self, sock):
-		try:
-			self.__ws_handshake(sock)
-		finally:
-			sock.close()
-			self.sockets.remove(sock)
+		return endpoint
 
 	#
 	# __ws_error_response
@@ -399,27 +459,13 @@ class WSServer:
 		else:
 			payload = b''
 
-		#
-		# basic processing for opcode
-		#
-		try:
-			if opcode == WSServer.WS_OPCODE_TEXT_1:
-				textdata = payload.decode(WSServer.WS_TEXT_ENCODING, errors='replace')
-				return (opcode, textdata)
-			elif opcode == WSServer.WS_OPCODE_BINARY_2:
-				return (opcode, payload)
-			elif opcode == WSServer.WS_OPCODE_CLOSE_8:
-				logging.debug('[%s] [frameRecv] closing...' % tid)
-				sock.close()
-				return None
-		finally:
-			logging.debug('[%s] [frameRecv] frame end.' % tid)
+		return (opcode, fin, payload)
 
 	#
 	# ws_write
 	#
 	@staticmethod
-	def ws_write(sock, data: bytes, isText=True):
+	def ws_write(sock, opcode, data: bytes):
 		tid = threading.get_ident()
 
 		#  0                   1                   2                   3
@@ -447,14 +493,9 @@ class WSServer:
 		rsv1 = 0
 		rsv2 = 0
 		rsv3 = 0
-		
-		if isText:
-			opcode = WSServer.WS_OPCODE_TEXT_1
-		else:
-			opcode = WSServer.WS_OPCODE_BINARY_2
-
-		mask = 1
-		data, maskbytes = WSServer.__ws_masking(data, mask=None)
+		opcode = opcode
+		mask = 0 # server does not mask data
+		maskbytes = None
 		
 		logging.debug('[%s] [frameSend] fin=%d, rsv1/2/3=%d/%d/%d, opcode=%d' % 
 					(tid, fin, rsv1, rsv2, rsv3, opcode))
@@ -504,9 +545,13 @@ class WSServer:
 			sock.send(data)
 
 ####################################################################
-# BytesStream (Socket-like)
+# BytesStream
 ####################################################################
 
+"""
+send, recv 를 구현하고 있어 소켓이 사용되는 곳에서 사용할 수 
+있으며 테스트를 위한 용도로 사용된다.
+"""
 class BytesStream:
 	#
 	# Constructor
@@ -550,25 +595,25 @@ if __name__ == '__main__':
 
 	sdata = b'1234abcd\x20\x20'
 	bstr = BytesStream()
-	WSServer.ws_write(bstr, sdata, False)
+	WSServer.ws_write(bstr, WSServer.WS_OPCODE_BINARY_2, sdata)
 	bstr.seek(0)
-	opcode, rdata = WSServer.ws_read(bstr)
+	opcode, fin, rdata = WSServer.ws_read(bstr)
 	assert opcode == 2
 	assert rdata == sdata
 	
-	sdata = ('a' + 'b'*1109 + 'c')
+	sdata = ('a' + 'b'*1109 + 'c').encode('utf_8')
 	bstr = BytesStream()
-	WSServer.ws_write(bstr, sdata.encode('utf_8'), True)
+	WSServer.ws_write(bstr, WSServer.WS_OPCODE_TEXT_1, sdata)
 	bstr.seek(0)
-	opcode, rdata = WSServer.ws_read(bstr)
+	opcode, fin, rdata = WSServer.ws_read(bstr)
 	assert opcode == 1
 	assert rdata == sdata
 	
-	sdata = ('a' + 'b'*111109 + 'c')
+	sdata = ('a' + 'b'*111109 + 'c').encode('utf_8')
 	bstr = BytesStream()
-	WSServer.ws_write(bstr, sdata.encode('utf_8'), True)
+	WSServer.ws_write(bstr, WSServer.WS_OPCODE_TEXT_1, sdata)
 	bstr.seek(0)
-	opcode, rdata = WSServer.ws_read(bstr)
+	opcode, fin, rdata = WSServer.ws_read(bstr)
 	assert opcode == 1
 	assert rdata == sdata
 	

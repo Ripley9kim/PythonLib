@@ -41,7 +41,7 @@ w.onopen = function() {
 var lastmessage;
 w.onmessage = function(e) {
 	lastmessage = e;
-	console.log("WebSocket(onmessage): ", e.data.toString());
+	console.log("WebSocket(onmessage): ", e.data);
 }
 
 w.onclose = function(e) {

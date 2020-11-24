@@ -15,38 +15,23 @@ logging.basicConfig(
 # handler
 ####################################################################
 
-def handler(endpoint, sock):
+def handler(_, sock, wsdata):
 	tid = threading.get_ident()
-	tid = str(tid) + '-' + endpoint
-	logging.debug('[%s] handler started. endpoint=[%s]' % (tid, endpoint))
-	try:
-		while True:
-			wsdata = WSServer.ws_read(sock)
-			if not wsdata:
-				logging.debug('[%s] end of data' % tid)
-				break
-			
-			opcode, data = wsdata
-			opcode_name = WSServer.WS_OPCODE_MAP.get(opcode, -1)
-			
-			if len(data) > 16:
-				logging.info('[%s] opcode=[%s] len=[%d] data=[%s...%s]' % 
-							(tid, opcode_name, len(data), data[:16], data[-16:]))
-			else:
-				logging.info('[%s] opcode=[%s] len=[%d] data=[%s]' % 
-							(tid, opcode_name, len(data), data))
-					
-			if opcode == WSServer.WS_OPCODE_TEXT_1:
-				pass # WSServer.ws_write(sock, data.encode(WSServer.WS_TEXT_ENCODING), True)
-			elif opcode == WSServer.WS_OPCODE_BINARY_2:
-				pass # WSServer.ws_write(sock, data, False)
-			else:
-				raise Exception('Invalid opcode: ' + opcode)
-	except Exception as e:
-		logging.debug('[%s] error=[%s]' % (tid, e))
-	finally:
-		logging.debug('[%s] handler end' % tid)
-		sock.close()
+	tid = str(tid) + '-' + wsdata.endpoint
+	
+	opcodenm = WSServer.WS_OPCODE_MAP[wsdata.opcode]
+	logging.debug('[%s] wsdata: endpoint=%s, opcode=%s, fin=%d' % 
+				(tid, wsdata.endpoint, opcodenm, wsdata.fin))
+	
+	if wsdata.opcode == WSServer.WS_OPCODE_TEXT_1:
+		textdata = wsdata.asText()
+		logging.debug('[%s] wsdata: len=%d, payload32=[%s]' % 
+					(tid, wsdata.length, textdata[:32]))
+		WSServer.ws_write(sock, wsdata.opcode, wsdata.payload)
+	else:
+		logging.debug('[%s] wsdata: len=%d, payload32B=[%s]' %
+					(tid, wsdata.length, wsdata.payload[:32]))
+		WSServer.ws_write(sock, wsdata.opcode, wsdata.payload)
 
 ####################################################################
 # main
@@ -135,5 +120,5 @@ if __name__ == '__main__':
 		endpoints = None
 
 	wssvr = WSServer(pargs.host, pargs.port, hosts, origins, endpoints)
-	wssvr.set_handler(handler)
+	wssvr.set_handler(lambda sock, wsdata: handler(wssvr, sock, wsdata))
 	wssvr.run_forever()
