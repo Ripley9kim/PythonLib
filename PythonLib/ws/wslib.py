@@ -5,6 +5,7 @@ import base64
 import httpmsg
 import socket
 import random
+import io
 	
 from http import HTTPStatus
 
@@ -308,7 +309,7 @@ class WSServer:
 	@staticmethod
 	def ws_read(sock):
 		tid = threading.get_ident()
-		
+
 		#  0                   1                   2                   3
 		#  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 		# +-+-+-+-+-------+-+-------------+-------------------------------+
@@ -374,8 +375,8 @@ class WSServer:
 			else:
 				tmpbytes = WSServer.__ws_sockread_all(sock, 8)
 				plen = int.from_bytes(tmpbytes, WSServer.WS_BYTE_ORDER, signed=False)
-			#logging.debug('[%s] [frameRecv] 0x%x' % (tid, n) + ' | {0:08b}'.format(n))
-			logging.debug('[%s] [frameRecv] mask=%d, plen=%d' % (tid, mask, plen))
+		#logging.debug('[%s] [frameRecv] 0x%x' % (tid, n) + ' | {0:08b}'.format(n))
+		logging.debug('[%s] [frameRecv] mask=%d, plen=%d' % (tid, mask, plen))
 
 		#
 		# Mask
@@ -462,7 +463,7 @@ class WSServer:
 		# 1st octet
 		#
 		octets = (fin << 7) + (rsv1 << 6) + (rsv2 << 5) + (rsv3 << 4) + (opcode & 0xf)
-		
+
 		#
 		# Payload length
 		#
@@ -501,3 +502,73 @@ class WSServer:
 		if plen > 0:
 			logging.debug('[%s] [frameSend] payload-32B=[%s]' % (tid, data[:32]))
 			sock.send(data)
+
+####################################################################
+# BytesStream (Socket-like)
+####################################################################
+
+class BytesStream:
+	#
+	# Constructor
+	#
+	def __init__(self, buffer=None):
+		self.bio = io.BytesIO(buffer)
+	
+	#
+	# recv
+	#
+	def recv(self, size):
+		return self.bio.read(size)
+	
+	#
+	# send
+	#
+	def send(self, buffer):
+		self.bio.write(buffer)
+	
+	#
+	# seek
+	#
+	def seek(self, pos, whence=0):
+		self.bio.seek(pos, whence)
+
+	#
+	# buffer
+	#
+	def buffer(self):
+		return self.bio.getvalue()
+
+####################################################################
+# Self-Test
+####################################################################
+
+if __name__ == '__main__':
+	logging.basicConfig(
+		level=logging.DEBUG, 
+		format='%(asctime)s.%(msecs)03d - %(message)s',
+		datefmt='%Y-%m-%d %H:%M:%S')
+
+	sdata = b'1234abcd\x20\x20'
+	bstr = BytesStream()
+	WSServer.ws_write(bstr, sdata, False)
+	bstr.seek(0)
+	opcode, rdata = WSServer.ws_read(bstr)
+	assert opcode == 2
+	assert rdata == sdata
+	
+	sdata = ('a' + 'b'*1109 + 'c')
+	bstr = BytesStream()
+	WSServer.ws_write(bstr, sdata.encode('utf_8'), True)
+	bstr.seek(0)
+	opcode, rdata = WSServer.ws_read(bstr)
+	assert opcode == 1
+	assert rdata == sdata
+	
+	sdata = ('a' + 'b'*111109 + 'c')
+	bstr = BytesStream()
+	WSServer.ws_write(bstr, sdata.encode('utf_8'), True)
+	bstr.seek(0)
+	opcode, rdata = WSServer.ws_read(bstr)
+	assert opcode == 1
+	assert rdata == sdata
+	
