@@ -1,4 +1,5 @@
 import collections
+import unittest
 import re
 
 from abc import abstractmethod
@@ -217,14 +218,15 @@ def message_from_socket(sock):
 	return msg
 
 ####################################################################
-# Self-Test
+# Test
 ####################################################################
 
-if __name__ == '__main__':
+class Test(unittest.TestCase):
 	#
-	# Request Parsing Test
+	# testRequestParsing
 	#
-	test_req = """
+	def testRequestParsing(self):
+		test_req = """
 GET /echo HTTP/1.1
 Host: localhost:8080
 Connection: Upgrade
@@ -239,98 +241,131 @@ Accept-Language: ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7
 Sec-WebSocket-Key: VnnUzLgNPNQB2YXQDn/ceQ==
 Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits
 """
-	test_req = test_req.replace('\n', '\r\n').strip() + '\r\n\r\n'
-	test_req_bytes = test_req.encode('utf_8')
-	msg = message_from_bytes(test_req_bytes)
-	assert test_req_bytes == msg.encode()
-	assert msg.requestLine() == 'GET /echo HTTP/1.1'
-	assert msg.method == 'GET'
-	assert msg.requesturi == '/echo'
-	assert msg.version == HTTPMsg.HTTP_VERSION
-	assert msg.header('cache-control') == 'no-cache'
-	assert msg.header('Cache-Control') == 'no-cache'
-	assert msg.header('NO-header') == None
-	assert msg.header('NO-header', '') == ''
-	assert msg.content == None
-	
+		test_req = test_req.replace('\n', '\r\n').strip() + '\r\n\r\n'
+		test_req_bytes = test_req.encode('utf_8')
+		msg = message_from_bytes(test_req_bytes)
+		assert test_req_bytes == msg.encode()
+		assert msg.requestLine() == 'GET /echo HTTP/1.1'
+		assert msg.method == 'GET'
+		assert msg.requesturi == '/echo'
+		assert msg.version == HTTPMsg.HTTP_VERSION
+		assert msg.header('cache-control') == 'no-cache'
+		assert msg.header('Cache-Control') == 'no-cache'
+		assert msg.header('NO-header') == None
+		assert msg.header('NO-header', '') == ''
+		assert msg.content == None
+
 	#
-	# Request Building Test
+	# testRequestBuilding
 	#
-	msg = HTTPReq(method='GET', requesturi='/echo')
-	msg.addHeader('Host', 'localhost:8080')
-	msg.addHeader('Connection', 'Upgrade')
-	msg.addHeader('Pragma', 'no-cache')
-	msg.addHeader('Cache-Control', 'no-cache')
-	msg.addHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36')
-	msg.addHeader('Upgrade', 'websocket')
-	msg.addHeader('Origin', 'file://')
-	msg.addHeader('Sec-WebSocket-Version', '13')
-	msg.addHeader('Accept-Encoding', 'gzip, deflate, br')
-	msg.addHeader('Accept-Language', 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7')
-	msg.addHeader('Sec-WebSocket-Key', 'VnnUzLgNPNQB2YXQDn/ceQ==')
-	msg.addHeader('Sec-WebSocket-Extensions', 'permessage-deflate; client_max_window_bits')
-	assert test_req_bytes == msg.encode()
-	assert msg.startLine() == 'GET /echo HTTP/1.1'
-	assert msg.method == 'GET'
-	assert msg.requesturi == '/echo'
-	assert msg.version == HTTPMsg.HTTP_VERSION
-	assert msg.header('cache-control') == 'no-cache'
-	assert msg.header('Cache-Control') == 'no-cache'
-	assert msg.header('NO-header') == None
-	assert msg.header('NO-header', '') == ''
-	assert msg.content == None
-	
+	def testRequestBuilding(self):
+		test_req = """
+GET /echo HTTP/1.1
+Host: localhost:8080
+Connection: Upgrade
+Pragma: no-cache
+Cache-Control: no-cache
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36
+Upgrade: websocket
+Origin: file://
+Sec-WebSocket-Version: 13
+Accept-Encoding: gzip, deflate, br
+Accept-Language: ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7
+Sec-WebSocket-Key: VnnUzLgNPNQB2YXQDn/ceQ==
+Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits
+"""
+		test_req = test_req.replace('\n', '\r\n').strip() + '\r\n\r\n'
+		test_req_bytes = test_req.encode('utf_8')
+		
+		msg = HTTPReq(method='GET', requesturi='/echo')
+		msg.addHeader('Host', 'localhost:8080')
+		msg.addHeader('Connection', 'Upgrade')
+		msg.addHeader('Pragma', 'no-cache')
+		msg.addHeader('Cache-Control', 'no-cache')
+		msg.addHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36')
+		msg.addHeader('Upgrade', 'websocket')
+		msg.addHeader('Origin', 'file://')
+		msg.addHeader('Sec-WebSocket-Version', '13')
+		msg.addHeader('Accept-Encoding', 'gzip, deflate, br')
+		msg.addHeader('Accept-Language', 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7')
+		msg.addHeader('Sec-WebSocket-Key', 'VnnUzLgNPNQB2YXQDn/ceQ==')
+		msg.addHeader('Sec-WebSocket-Extensions', 'permessage-deflate; client_max_window_bits')
+		assert test_req_bytes == msg.encode()
+		assert msg.startLine() == 'GET /echo HTTP/1.1'
+		assert msg.method == 'GET'
+		assert msg.requesturi == '/echo'
+		assert msg.version == HTTPMsg.HTTP_VERSION
+		assert msg.header('cache-control') == 'no-cache'
+		assert msg.header('Cache-Control') == 'no-cache'
+		assert msg.header('NO-header') == None
+		assert msg.header('NO-header', '') == ''
+		assert msg.content == None
+
 	#
-	# Response Parsing Test
+	# testResponseParsing
 	#
-	test_resp = """	
+	def testResponseParsing(self):
+		test_resp = """	
 HTTP/1.1 101 Switching Protocols
 Upgrade: websocket
 Connection: Upgrade
 Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
 Sec-WebSocket-Protocol: chat
 """
-	test_resp = test_resp.replace('\n', '\r\n').strip() + '\r\n\r\n'
-	test_resp_bytes = test_resp.encode('utf_8')
-	msg = message_from_bytes(test_resp_bytes)
-	assert test_resp_bytes == msg.encode()
-	assert msg.statusLine() == 'HTTP/1.1 101 Switching Protocols'
-	assert msg.version == HTTPMsg.HTTP_VERSION
-	assert msg.status == 101
-	assert msg.phrase == 'Switching Protocols'
-	assert msg.header('Connection') == 'Upgrade'
-	assert msg.header('CONNECTIOn') == 'Upgrade'
-	assert msg.header('NO-header') == None
-	assert msg.header('NO-header', '') == ''
-	assert msg.content == None
+		test_resp = test_resp.replace('\n', '\r\n').strip() + '\r\n\r\n'
+		test_resp_bytes = test_resp.encode('utf_8')
+		msg = message_from_bytes(test_resp_bytes)
+		assert test_resp_bytes == msg.encode()
+		assert msg.statusLine() == 'HTTP/1.1 101 Switching Protocols'
+		assert msg.version == HTTPMsg.HTTP_VERSION
+		assert msg.status == 101
+		assert msg.phrase == 'Switching Protocols'
+		assert msg.header('Connection') == 'Upgrade'
+		assert msg.header('CONNECTIOn') == 'Upgrade'
+		assert msg.header('NO-header') == None
+		assert msg.header('NO-header', '') == ''
+		assert msg.content == None
+
+	#
+	# testResponseBuilding
+	#
+	def testResponseBuilding(self):
+		test_resp = """	
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+Sec-WebSocket-Protocol: chat
+"""
+		test_resp = test_resp.replace('\n', '\r\n').strip() + '\r\n\r\n'
+		test_resp_bytes = test_resp.encode('utf_8')
+		
+		msg = HTTPResp(status=101, phrase='Switching Protocols')
+		msg.addHeader('Upgrade', 'websocket')
+		msg.addHeader('Connection', 'Upgrade')
+		msg.addHeader('Sec-WebSocket-Accept', 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=')
+		msg.addHeader('Sec-WebSocket-Protocol', 'chat')
+		assert test_resp_bytes == msg.encode()
+		assert msg.startLine() == 'HTTP/1.1 101 Switching Protocols'
+		assert msg.version == HTTPMsg.HTTP_VERSION
+		assert msg.status == 101
+		assert msg.phrase == 'Switching Protocols'
+		assert msg.header('Connection') == 'Upgrade'
+		assert msg.header('CONNECTIOn') == 'Upgrade'
+		assert msg.header('NO-header') == None
+		assert msg.header('NO-header', '') == ''
+		assert msg.content == None
 	
 	#
-	# Response Building Test
+	# testAddingHeaders
 	#
-	msg = HTTPResp(status=101, phrase='Switching Protocols')
-	msg.addHeader('Upgrade', 'websocket')
-	msg.addHeader('Connection', 'Upgrade')
-	msg.addHeader('Sec-WebSocket-Accept', 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=')
-	msg.addHeader('Sec-WebSocket-Protocol', 'chat')
-	assert test_resp_bytes == msg.encode()
-	assert msg.startLine() == 'HTTP/1.1 101 Switching Protocols'
-	assert msg.version == HTTPMsg.HTTP_VERSION
-	assert msg.status == 101
-	assert msg.phrase == 'Switching Protocols'
-	assert msg.header('Connection') == 'Upgrade'
-	assert msg.header('CONNECTIOn') == 'Upgrade'
-	assert msg.header('NO-header') == None
-	assert msg.header('NO-header', '') == ''
-	assert msg.content == None
-	
-	#
-	# addHeader Test
-	#
-	msg.addHeader('my-x-header', None)
-	assert msg.header('my-X-header') == None
-	msg.addHeader('my-x-header', '')
-	assert msg.header('my-X-header') == None
-	msg.addHeader('my-x-header', '   ')
-	assert msg.header('my-X-header') == None
-	msg.addHeader('my-x-header', 100)
-	assert msg.header('my-X-header') == '100'
+	def testAddingHeaders(self):
+		msg = HTTPResp(status=101, phrase='Switching Protocols')
+		msg.addHeader('my-x-header', None)
+		assert msg.header('my-X-header') == None
+		msg.addHeader('my-x-header', '')
+		assert msg.header('my-X-header') == None
+		msg.addHeader('my-x-header', '   ')
+		assert msg.header('my-X-header') == None
+		msg.addHeader('my-x-header', 100)
+		assert msg.header('my-X-header') == '100'

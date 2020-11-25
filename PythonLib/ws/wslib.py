@@ -5,6 +5,7 @@ import base64
 import httpmsg
 import socket
 import random
+import unittest
 import io
 	
 from http import HTTPStatus
@@ -405,9 +406,6 @@ class WSServer:
 		logging.debug('[%s] [frameRecv] fin=%d, rsv1/2/3=%d/%d/%d, opcode=%d' % 
 					(tid, fin, rsv1, rsv2, rsv3, opcode))
 		
-		if fin != 1:
-			raise Exception("Fragmentation not currently supported")
-
 		#
 		# second octet
 		#
@@ -465,7 +463,7 @@ class WSServer:
 	# ws_write
 	#
 	@staticmethod
-	def ws_write(sock, opcode, data: bytes):
+	def ws_write(sock, opcode, data: bytes, fin=1):
 		tid = threading.get_ident()
 
 		#  0                   1                   2                   3
@@ -489,7 +487,6 @@ class WSServer:
 		
 		logging.debug('[%s] [frameSend] <<<< frame start >>>>' % tid)
 		
-		fin = 1
 		rsv1 = 0
 		rsv2 = 0
 		rsv3 = 0
@@ -584,36 +581,73 @@ class BytesStream:
 		return self.bio.getvalue()
 
 ####################################################################
-# Self-Test
+# Test
 ####################################################################
 
-if __name__ == '__main__':
-	logging.basicConfig(
-		level=logging.DEBUG, 
-		format='%(asctime)s.%(msecs)03d - %(message)s',
-		datefmt='%Y-%m-%d %H:%M:%S')
+class Test(unittest.TestCase):
+	#
+	# Constructor
+	#
+	def __init__(self, *args, **kwargs):
+		unittest.TestCase.__init__(self, *args, **kwargs)
+		logging.basicConfig(
+			level=logging.DEBUG, 
+			format='%(asctime)s.%(msecs)03d - %(message)s',
+			datefmt='%Y-%m-%d %H:%M:%S')
 
-	sdata = b'1234abcd\x20\x20'
-	bstr = BytesStream()
-	WSServer.ws_write(bstr, WSServer.WS_OPCODE_BINARY_2, sdata)
-	bstr.seek(0)
-	opcode, fin, rdata = WSServer.ws_read(bstr)
-	assert opcode == 2
-	assert rdata == sdata
-	
-	sdata = ('a' + 'b'*1109 + 'c').encode('utf_8')
-	bstr = BytesStream()
-	WSServer.ws_write(bstr, WSServer.WS_OPCODE_TEXT_1, sdata)
-	bstr.seek(0)
-	opcode, fin, rdata = WSServer.ws_read(bstr)
-	assert opcode == 1
-	assert rdata == sdata
-	
-	sdata = ('a' + 'b'*111109 + 'c').encode('utf_8')
-	bstr = BytesStream()
-	WSServer.ws_write(bstr, WSServer.WS_OPCODE_TEXT_1, sdata)
-	bstr.seek(0)
-	opcode, fin, rdata = WSServer.ws_read(bstr)
-	assert opcode == 1
-	assert rdata == sdata
-	
+	#
+	# testFrameSendRecv
+	#
+	def testFrameSendRecv(self):
+		sdata = b'1234abcd\x20\x20'
+		bstr = BytesStream()
+		WSServer.ws_write(bstr, WSServer.WS_OPCODE_BINARY_2, sdata)
+		bstr.seek(0)
+		opcode, _, rdata = WSServer.ws_read(bstr)
+		assert opcode == 2
+		assert rdata == sdata
+
+	#
+	# testFrameSendRecvLong
+	#
+	def testFrameSendRecvLong(self):		
+		sdata = ('a' + 'b'*1109 + 'c').encode('utf_8')
+		bstr = BytesStream()
+		WSServer.ws_write(bstr, WSServer.WS_OPCODE_TEXT_1, sdata)
+		bstr.seek(0)
+		opcode, _, rdata = WSServer.ws_read(bstr)
+		assert opcode == 1
+		assert rdata == sdata
+
+	#
+	# testFrameSendRecvHuge
+	#
+	def testFrameSendRecvHuge(self):
+		sdata = ('a' + 'b'*111109 + 'c').encode('utf_8')
+		bstr = BytesStream()
+		WSServer.ws_write(bstr, WSServer.WS_OPCODE_TEXT_1, sdata)
+		bstr.seek(0)
+		opcode, _, rdata = WSServer.ws_read(bstr)
+		assert opcode == 1
+		assert rdata == sdata
+
+	#
+	# testFrameSendCont
+	#
+	def testFrameSendCont(self):
+		sdata = ('1' + '2'*88 + '3').encode('utf_8')
+		sdata1 = sdata[:30]
+		sdata2 = sdata[30:60]
+		sdata3 = sdata[60:90]
+		bstr = BytesStream()
+		WSServer.ws_write(bstr, WSServer.WS_OPCODE_TEXT_1, sdata1, fin=0)
+		WSServer.ws_write(bstr, WSServer.WS_OPCODE_CONT_0, sdata2, fin=0)
+		WSServer.ws_write(bstr, WSServer.WS_OPCODE_CONT_0, sdata3, fin=1)
+		bstr.seek(0)
+		opcode, fin, rdata1 = WSServer.ws_read(bstr)
+		assert opcode == WSServer.WS_OPCODE_TEXT_1 and fin == 0
+		opcode, fin, rdata2 = WSServer.ws_read(bstr)
+		assert opcode == WSServer.WS_OPCODE_CONT_0 and fin == 0
+		opcode, fin, rdata3 = WSServer.ws_read(bstr)
+		assert opcode == WSServer.WS_OPCODE_CONT_0 and fin == 1
+		assert rdata1 + rdata2 + rdata3 == sdata
