@@ -651,3 +651,18 @@ class Test(unittest.TestCase):
 		opcode, fin, rdata3 = WSServer.ws_read(bstr)
 		assert opcode == WSServer.WS_OPCODE_CONT_0 and fin == 1
 		assert rdata1 + rdata2 + rdata3 == sdata
+	
+	#
+	# testPingPongFrame
+	#
+	def testPingPongFrame(self):
+		pingdata = '~ping~'.encode('utf_8')
+		pongdata = '~pong~'.encode('utf_8')
+		bstr = BytesStream()
+		WSServer.ws_write(bstr, WSServer.WS_OPCODE_PING_9, pingdata)
+		WSServer.ws_write(bstr, WSServer.WS_OPCODE_PONG_A, pongdata)
+		bstr.seek(0)
+		opcode, _, pingdata1 = WSServer.ws_read(bstr)
+		assert opcode == WSServer.WS_OPCODE_PING_9, pingdata == pingdata1
+		opcode, _, pongdata1 = WSServer.ws_read(bstr)
+		assert opcode == WSServer.WS_OPCODE_PONG_A, pongdata == pongdata1
