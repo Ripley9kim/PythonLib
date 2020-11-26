@@ -162,6 +162,11 @@ class WSServer:
 			tid = threading.get_ident()
 			tid = str(tid) + '-' + endpoint
 			logging.debug('[%s] handler started. endpoint=[%s]' % (tid, endpoint))
+			
+			# Ping Test (No need actually)
+			pingdata = 'initpingtest'.encode(WSServer.WS_TEXT_ENCODING)
+			WSServer.ws_write(sock, WSServer.WS_OPCODE_PING_9, pingdata)
+			
 			while True:
 				wsdata = WSServer.ws_read(sock)
 				if not wsdata:
@@ -184,15 +189,18 @@ class WSServer:
 					event = WSData(endpoint, opcode, fin, payload)
 				elif opcode == WSServer.WS_OPCODE_CLOSE_8:
 					reason = payload.decode(WSServer.WS_TEXT_ENCODING)
-					logging.debug('[%s] [frameRecv] closing. reason=[%s]' % (tid, reason))
+					logging.debug('[%s] closing. reason=[%s]' % (tid, reason))
 					WSServer.ws_write(sock, opcode, payload)
 					# TODO: wait some seconds for server to close socket and close socket.
 					sock.close()
 					return None
 				elif opcode == WSServer.WS_OPCODE_PING_9:
-					...
-				elif opcode == WSServer.WS_OPCODE_PONG_9:
-					...
+					WSServer.ws_write(sock, WSServer.WS_OPCODE_PONG_9, payload)
+					logging.debug('[%s] ping->pong' % tid)
+					continue
+				elif opcode == WSServer.WS_OPCODE_PONG_A:
+					logging.debug('[%s] pong recv.' % tid)
+					continue
 				else:
 					raise Exception('Invalid opcode: ' + opcode)
 				

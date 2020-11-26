@@ -2,7 +2,6 @@ import os
 import logging
 import argparse
 import re
-import threading
 
 from wslib import WSServer
 
@@ -16,21 +15,18 @@ logging.basicConfig(
 ####################################################################
 
 def handler(_, sock, wsdata):
-	tid = threading.get_ident()
-	tid = str(tid) + '-' + wsdata.endpoint
-	
 	opcodenm = WSServer.WS_OPCODE_MAP[wsdata.opcode]
-	logging.debug('[%s] wsdata: endpoint=%s, opcode=%s, fin=%d' % 
-				(tid, wsdata.endpoint, opcodenm, wsdata.fin))
+	logging.debug('[handler] endpoint=%s, opcode=%s, fin=%d' % 
+				(wsdata.endpoint, opcodenm, wsdata.fin))
 	
 	if wsdata.opcode == WSServer.WS_OPCODE_TEXT_1:
 		textdata = wsdata.asText()
-		logging.debug('[%s] wsdata: len=%d, payload32=[%s]' % 
-					(tid, wsdata.length, textdata[:32]))
+		logging.debug('[handler] wsdata: len=%d, payload32C=[%s]' % 
+					(wsdata.length, textdata[:32]))
 		WSServer.ws_write(sock, wsdata.opcode, wsdata.payload)
 	else:
-		logging.debug('[%s] wsdata: len=%d, payload32B=[%s]' %
-					(tid, wsdata.length, wsdata.payload[:32]))
+		logging.debug('[handler] wsdata: len=%d, payload32B=[%s]' %
+					(wsdata.length, wsdata.payload[:32]))
 		WSServer.ws_write(sock, wsdata.opcode, wsdata.payload)
 
 ####################################################################
