@@ -6,6 +6,7 @@ import httpmsg
 import socket
 import random
 import unittest
+import time
 import io
 	
 from http import HTTPStatus
@@ -122,7 +123,7 @@ class WSServer:
 	#
 	def run_forever(self):
 		self.__serverloop()
-	
+
 	# 
 	# shutdown
 	#
@@ -191,8 +192,8 @@ class WSServer:
 					reason = payload.decode(WSServer.WS_TEXT_ENCODING)
 					logging.debug('[%s] closing. reason=[%s]' % (tid, reason))
 					WSServer.ws_write(sock, opcode, payload)
-					# TODO: wait some seconds for server to close socket and close socket.
-					sock.close()
+					t = threading.Thread(target=WSServer.__ws_close_pending, args=(sock,))
+					t.start()
 					return None
 				elif opcode == WSServer.WS_OPCODE_PING_9:
 					WSServer.ws_write(sock, WSServer.WS_OPCODE_PONG_9, payload)
@@ -371,6 +372,19 @@ class WSServer:
 			j = i % 4
 			result[i] = data[i] ^ mask[j]
 		return (bytes(result), mask)
+
+	#
+	# __ws_close_pending
+	#
+	@staticmethod
+	def __ws_close_pending(sock):
+		time.sleep(3)
+		# Close Frame 은 주고 받았으나 상대방이 소켓을 끊기를 
+		# 잠시 기다렸다가 끊도록 한다. 상대방이 이미 끊었을 수도 있다.
+		try:
+			sock.close()
+		except:
+			...
 
 	#
 	# ws_read
